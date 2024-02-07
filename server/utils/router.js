@@ -3,6 +3,7 @@ import {
   findTrainers,
   findTrainer,
   upsertTrainer,
+  deleteTrainer,
 } from "~/server/utils/trainer";
 import { findPokemon } from "~/server/utils/pokemon";
 
@@ -26,8 +27,11 @@ router.get("/trainers", async (_req, res, next) => {
 /** トレーナーの追加 */
 router.post("/trainer", async (req, res, next) => {
   try {
-    // TODO: リクエストボディにトレーナー名が含まれていなければ400を返す
-    // TODO: すでにトレーナー（S3 オブジェクト）が存在していれば409を返す
+    if (!("name" in req.body && req.body.name.length > 0))
+      return res.sendStatus(400);
+    const trainers = await findTrainers();
+    if (trainers.some(({ Key }) => Key === `${req.body.name}.json`))
+      return res.sendStatus(409);
     const result = await upsertTrainer(req.body.name, req.body);
     res.status(result["$metadata"].httpStatusCode).send(result);
   } catch (err) {
@@ -50,7 +54,9 @@ router.get("/trainer/:trainerName", async (req, res, next) => {
 router.post("/trainer/:trainerName", async (req, res, next) => {
   try {
     const { trainerName } = req.params;
-    // TODO: トレーナーが存在していなければ404を返す
+    const trainers = await findTrainers();
+    if (!trainers.some(({ Key }) => Key === `${trainerName}.json`))
+      return res.sendStatus(404);
     const result = await upsertTrainer(trainerName, req.body);
     res.status(result["$metadata"].httpStatusCode).send(result);
   } catch (err) {
@@ -59,7 +65,15 @@ router.post("/trainer/:trainerName", async (req, res, next) => {
 });
 
 /** トレーナーの削除 */
-// TODO: トレーナーを削除する API エンドポイントの実装
+router.delete("/trainer/:trainerName", async (req, res, next) => {
+  try {
+    const { trainerName } = req.params;
+    const result = await deleteTrainer(trainerName);
+    res.status(result["$metadata"].httpStatusCode).send(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
 /** ポケモンの追加 */
 router.post("/trainer/:trainerName/pokemon", async (req, res, next) => {
@@ -89,6 +103,22 @@ router.post("/trainer/:trainerName/pokemon", async (req, res, next) => {
 });
 
 /** ポケモンの削除 */
-// TODO: ポケモンを削除する API エンドポイントの実装
+router.delete(
+  "/trainer/:trainerName/pokemon/:pokemonId",
+  async (req, res, next) => {
+    try {
+      const { trainerName, pokemonId } = req.params;
+      const trainer = await findTrainer(trainerName);
+      const index = trainer.pokemons.findIndex(
+        (pokemon) => String(pokemon.id) === pokemonId,
+      );
+      trainer.pokemons.splice(index, 1);
+      const result = await upsertTrainer(trainerName, trainer);
+      res.status(result["$metadata"].httpStatusCode).send(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 export default router;
